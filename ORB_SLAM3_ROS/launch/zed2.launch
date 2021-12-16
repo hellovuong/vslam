@@ -1,0 +1,7 @@
+<launch>
+    <node pkg="VSLAM" type="Stereo_Inertial" name="VSLAM" args="/home/vuong/Code/catkin_ws/src/ORB_SLAM3/Vocabulary/ORBvoc.txt /home/vuong/Code/catkin_ws/src/ORB_SLAM3/Examples/Stereo-Inertial/Zed2.yaml true" cwd="node" output="screen">
+        <remap from="/camera/left/image_raw" to="/zed2/zed_node/left/image_rect_color" />
+        <remap from="/camera/right/image_raw" to="/zed2/zed_node/right/image_rect_color" />
+        <remap from="/imu" to="/zed2/zed_node/imu/data" />
+    </node>
+</launch>

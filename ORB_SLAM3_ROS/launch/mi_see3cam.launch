@@ -1,0 +1,6 @@
+<launch>
+    <node pkg="ORB_SLAM3" type="Mono_Inertial" name="ORB_SLAM3" args="/home/vuong/Code/catkin_ws/src/ORB_SLAM3/Vocabulary/ORBvoc.txt /home/vuong/Code/catkin_ws/src/ORB_SLAM3/Examples/Monocular-Inertial/see3cam_rs.yaml true" cwd="node" output="screen">
+        <remap from="/camera/image_raw" to="/see3cam/image_raw" />
+        <remap from="/imu" to="/imu/data" />
+    </node>
+</launch>
