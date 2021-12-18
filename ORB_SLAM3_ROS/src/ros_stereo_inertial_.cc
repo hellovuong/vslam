@@ -19,13 +19,10 @@
  * ORB-SLAM3. If not, see <http://www.gnu.org/licenses/>.
  */
 
-// FROM ROS
 #include <cv_bridge/cv_bridge.h>
-#include <image_transport/image_transport.h>
 #include <ros/ros.h>
 #include <sensor_msgs/Imu.h>
 
-// FROM System
 #include <chrono>
 #include <iostream>
 #include <mutex>
@@ -34,92 +31,80 @@
 #include <thread>
 #include <vector>
 
-// FROM ORB_SLAM3
-#include <ImuTypes.h>
-#include <System.h>
-#include <node.h>
+#include "ImuTypes.h"
+#include "System.h"
 
 using namespace std;
 
 class ImuGrabber {
  public:
   ImuGrabber() = default;
+  ;
   void GrabImu(const sensor_msgs::ImuConstPtr& imu_msg);
+
   queue<sensor_msgs::ImuConstPtr> imuBuf;
   std::mutex mBufMutex;
 };
 
-class VIO : public node {
+class ImageGrabber {
  public:
-  VIO(ORB_SLAM3::System::eSensor sensor,
-      ros::NodeHandle& node_handle,
-      image_transport::ImageTransport& image_transport,
-      std::string strOutput = std::string());
-  ~VIO();
+  ImageGrabber(ORB_SLAM3::System* pSLAM,
+               ImuGrabber* pImuGb,
+               const bool bRect,
+               const bool bClahe)
+      : mpSLAM(pSLAM), mpImuGb(pImuGb), do_rectify(bRect), mbClahe(bClahe) {}
+
   void GrabImageLeft(const sensor_msgs::ImageConstPtr& msg);
   void GrabImageRight(const sensor_msgs::ImageConstPtr& msg);
   static cv::Mat GetImage(const sensor_msgs::ImageConstPtr& img_msg);
   void SyncWithImu();
-  cv::Mat M1l, M2l, M1r, M2r;
-  ImuGrabber* mpImuGb;
 
- public:
-  void setmbClahe(bool mbClahe);
-  void setmbRectify(bool mbRectify);
-  void setmbResize(bool mbResize);
-  void setmnWidth(int mnWidth);
-  void setmnHeight(int mnHeight);
-  void SavingTrajectory();
-
- private:
   queue<sensor_msgs::ImageConstPtr> imgLeftBuf, imgRightBuf;
   std::mutex mBufMutexLeft, mBufMutexRight;
 
- private:
-  // Variables for preprocessing images before passing to ORB_SLAM3
-  bool mbResize = false;
-  bool mbClahe = false;
-  bool mbRectify = true;
-  int mnWidth, mnHeight;
+  ORB_SLAM3::System* mpSLAM;
+  ImuGrabber* mpImuGb;
 
- private:
+  const bool do_rectify;
+  cv::Mat M1l, M2l, M1r, M2r;
+
+  const bool mbClahe;
   cv::Ptr<cv::CLAHE> mClahe = cv::createCLAHE(3.0, cv::Size(8, 8));
 };
 
 int main(int argc, char** argv) {
-  ros::init(argc, argv, "ORB_SLAM3");
-  ros::NodeHandle nh("~");
-  image_transport::ImageTransport image_transport(nh);
+  ros::init(argc, argv, "Stereo_Inertial");
+  ros::NodeHandle n("~");
   ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME,
                                  ros::console::levels::Info);
-
-  // Some static parameters
-  std::string strVocFile;
-  std::string strSettingsFile;
-  std::string strOutput;
   bool bEqual = false;
-  bool bRect = true;
-  bool bResize = false;
+  if (argc < 4 || argc > 5) {
+    cerr << endl
+         << "Usage: rosrun ORB_SLAM3 Stereo_Inertial path_to_vocabulary "
+            "path_to_settings do_rectify [do_equalize]"
+         << endl;
+    ros::shutdown();
+    return 1;
+  }
 
-  // Retrieve parameters
-  nh.getParam("Params", strSettingsFile);
-  nh.getParam("Do_Rectify", bRect);
-  nh.getParam("Do_Equalize", bEqual);
-  nh.getParam("Do_Resize", bResize);
-  nh.getParam("Output_name", strOutput);
+  std::string sbRect(argv[3]);
+  if (argc == 5) {
+    std::string sbEqual(argv[4]);
+    if (sbEqual == "true") bEqual = true;
+  }
 
-  auto* imugb = new ImuGrabber();
-  VIO mVIO(
-      ORB_SLAM3::System::eSensor::IMU_STEREO, nh, image_transport, strOutput);
+  // Create SLAM system. It initializes all system threads and gets ready to
+  // process frames.
+  ORB_SLAM3::System SLAM(argv[1], argv[2], ORB_SLAM3::System::IMU_STEREO, true);
 
-  mVIO.mpImuGb = imugb;
+  ImuGrabber imugb;
+  ImageGrabber igb(&SLAM, &imugb, sbRect == "true", bEqual);
 
-  if (bRect) {
+  if (igb.do_rectify) {
     // Load settings related to stereo calibration
-    cv::FileStorage fsSettings(strSettingsFile, cv::FileStorage::READ);
+    cv::FileStorage fsSettings(argv[2], cv::FileStorage::READ);
     if (!fsSettings.isOpened()) {
-      ROS_FATAL("ERROR: Wrong path to settings");
-      ros::shutdown();
+      cerr << "ERROR: Wrong path to settings" << endl;
       return -1;
     }
 
@@ -144,8 +129,8 @@ int main(int argc, char** argv) {
     if (K_l.empty() || K_r.empty() || P_l.empty() || P_r.empty() ||
         R_l.empty() || R_r.empty() || D_l.empty() || D_r.empty() ||
         rows_l == 0 || rows_r == 0 || cols_l == 0 || cols_r == 0) {
-      ROS_FATAL("ERROR: Calibration parameters to rectify stereo are missing!");
-      ros::shutdown();
+      cerr << "ERROR: Calibration parameters to rectify stereo are missing!"
+           << endl;
       return -1;
     }
 
@@ -155,72 +140,48 @@ int main(int argc, char** argv) {
                                 P_l.rowRange(0, 3).colRange(0, 3),
                                 cv::Size(cols_l, rows_l),
                                 CV_32F,
-                                mVIO.M1l,
-                                mVIO.M2l);
+                                igb.M1l,
+                                igb.M2l);
     cv::initUndistortRectifyMap(K_r,
                                 D_r,
                                 R_r,
                                 P_r.rowRange(0, 3).colRange(0, 3),
                                 cv::Size(cols_r, rows_r),
                                 CV_32F,
-                                mVIO.M1r,
-                                mVIO.M2r);
+                                igb.M1r,
+                                igb.M2r);
   }
-
-  if (bResize) {
-    ROS_WARN(
-        "Resize input image is enable, Make sure that using correct camera "
-        "parameters");
-    int new_width, new_height;
-    if (nh.hasParam("New_width") && nh.hasParam("New_height")) {
-      nh.getParam("New_width", new_width);
-      nh.getParam("New_height", new_height);
-      mVIO.setmnWidth(new_width);
-      mVIO.setmnHeight(new_height);
-      mVIO.setmbResize(bResize);
-    } else {
-      ROS_FATAL("Resize image is enable but missing new W and H");
-      return EXIT_FAILURE;
-    }
-  }
-
-  mVIO.setmbRectify(bRect);
-  mVIO.setmbClahe(bEqual);
-
-  mVIO.Init();
 
   // Maximum delay, 5 seconds
   ros::Subscriber sub_imu =
-      nh.subscribe("/imu", 1000, &ImuGrabber::GrabImu, imugb);
-  ros::Subscriber sub_img_left =
-      nh.subscribe("/camera/left/image_raw", 100, &VIO::GrabImageLeft, &mVIO);
-  ros::Subscriber sub_img_right =
-      nh.subscribe("/camera/right/image_raw", 100, &VIO::GrabImageRight, &mVIO);
+      n.subscribe("/imu", 1000, &ImuGrabber::GrabImu, &imugb);
+  ros::Subscriber sub_img_left = n.subscribe(
+      "/camera/left/image_raw", 100, &ImageGrabber::GrabImageLeft, &igb);
+  ros::Subscriber sub_img_right = n.subscribe(
+      "/camera/right/image_raw", 100, &ImageGrabber::GrabImageRight, &igb);
 
-  std::thread sync_thread(&VIO::SyncWithImu, &mVIO);
+  std::thread sync_thread(&ImageGrabber::SyncWithImu, &igb);
 
   ros::spin();
-
-  mVIO.SavingTrajectory();
 
   return 0;
 }
 
-void VIO::GrabImageLeft(const sensor_msgs::ImageConstPtr& img_msg) {
+void ImageGrabber::GrabImageLeft(const sensor_msgs::ImageConstPtr& img_msg) {
   mBufMutexLeft.lock();
   if (!imgLeftBuf.empty()) imgLeftBuf.pop();
   imgLeftBuf.push(img_msg);
   mBufMutexLeft.unlock();
 }
 
-void VIO::GrabImageRight(const sensor_msgs::ImageConstPtr& img_msg) {
+void ImageGrabber::GrabImageRight(const sensor_msgs::ImageConstPtr& img_msg) {
   mBufMutexRight.lock();
   if (!imgRightBuf.empty()) imgRightBuf.pop();
   imgRightBuf.push(img_msg);
   mBufMutexRight.unlock();
 }
 
-cv::Mat VIO::GetImage(const sensor_msgs::ImageConstPtr& img_msg) {
+cv::Mat ImageGrabber::GetImage(const sensor_msgs::ImageConstPtr& img_msg) {
   // Copy the ros image message to cv::Mat.
   cv_bridge::CvImageConstPtr cv_ptr;
   try {
@@ -237,7 +198,7 @@ cv::Mat VIO::GetImage(const sensor_msgs::ImageConstPtr& img_msg) {
   }
 }
 
-void VIO::SyncWithImu() {
+void ImageGrabber::SyncWithImu() {
   const double maxTimeDiff = 0.01;
   while (ros::ok()) {
     cv::Mat imLeft, imRight;
@@ -301,61 +262,19 @@ void VIO::SyncWithImu() {
         mClahe->apply(imLeft, imLeft);
         mClahe->apply(imRight, imRight);
       }
-      if (mbResize) {
-        cv::resize(imLeft, imLeft, cv::Size(mnWidth, mnHeight));
-        cv::resize(imRight, imRight, cv::Size(mnWidth, mnHeight));
-      }
-      if (mbRectify) {
+
+      if (do_rectify) {
         cv::remap(imLeft, imLeft, M1l, M2l, cv::INTER_LINEAR);
         cv::remap(imRight, imRight, M1r, M2r, cv::INTER_LINEAR);
       }
 
-      mpORB_SLAM3->TrackStereo(imLeft, imRight, tImLeft, vImuMeas);
-      Update();
+      mpSLAM->TrackStereo(imLeft, imRight, tImLeft, vImuMeas);
+      // Public messeage
       std::chrono::milliseconds tSleep(1);
       std::this_thread::sleep_for(tSleep);
     }
   }
 }
-VIO::VIO(ORB_SLAM3::System::eSensor sensor,
-         ros::NodeHandle& node_handle,
-         image_transport::ImageTransport& image_transport,
-         std::string strOutput)
-    : node(sensor, node_handle, image_transport, strOutput) {}
-
-void VIO::setmbClahe(bool bClahe) { VIO::mbClahe = bClahe; }
-void VIO::setmbRectify(bool bRectify) { VIO::mbRectify = bRectify; }
-VIO::~VIO() {
-  // Release memory
-  delete mpORB_SLAM3;
-  //  delete mpTracking;
-  delete mpLocalMapping;
-  //  delete mpLoopClosing;
-  delete mpMapDrawer;
-  delete mpAtlas;
-}
-void VIO::SavingTrajectory() {
-  // Stop all threads
-  mpORB_SLAM3->Shutdown();
-  ROS_INFO("Saving trajectory...");
-  // Save trajectory
-  if (mSensor == ORB_SLAM3::System::MONOCULAR ||
-      mSensor == ORB_SLAM3::System::IMU_MONOCULAR) {
-    mpORB_SLAM3->SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
-  } else {
-    if (strOutputFile.empty()) {
-      mpORB_SLAM3->SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
-      mpORB_SLAM3->SaveTrajectoryTUM("FrameTrajectory.txt");
-    } else {
-      mpORB_SLAM3->SaveKeyFrameTrajectoryTUM("kf_" + strOutputFile + ".txt");
-      mpORB_SLAM3->SaveTrajectoryTUM("f_" + strOutputFile + ".txt");
-    }
-  }
-  ROS_INFO("Saved trajectory!");
-}
-void VIO::setmbResize(bool bResize) { VIO::mbResize = bResize; }
-void VIO::setmnWidth(int nWidth) { VIO::mnWidth = nWidth; }
-void VIO::setmnHeight(int nHeight) { VIO::mnHeight = nHeight; }
 
 void ImuGrabber::GrabImu(const sensor_msgs::ImuConstPtr& imu_msg) {
   mBufMutex.lock();

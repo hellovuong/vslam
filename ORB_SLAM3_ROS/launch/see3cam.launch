@@ -1,5 +1,0 @@
-<launch>
-    <node pkg="ORB_SLAM3" type="Mono" name="ORB_SLAM3" args="/home/vuong/Code/catkin_ws/src/ORB_SLAM3/Vocabulary/ORBvoc.txt /home/vuong/Code/catkin_ws/src/ORB_SLAM3/Examples/Monocular/see3cam.yaml" cwd="node" output="screen">
-        <remap from="/camera/image_raw" to="/see3cam/image_raw" />
-    </node>
-</launch>

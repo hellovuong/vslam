@@ -4,14 +4,11 @@
   <version>0.0.0</version>
   <description>vslam</description>
 
-  <!-- One maintainer tag required, multiple allowed, one person per tag --> 
-  <!-- Example:  -->
-  <!-- <maintainer email="jane.doe@example.com">Jane Doe</maintainer> -->
+  <!-- One maintainer tag required, multiple allowed, one person per tag -->
   <maintainer email="h.vuong@itmo.ru">vuong</maintainer>
 
 
   <!-- One license tag required, multiple allowed, one license per tag -->
-  <!-- Commonly used license strings: -->
   <!--   BSD, MIT, Boost Software License, GPLv2, GPLv3, LGPLv2.1, LGPLv3 -->
   <license>GPLv3</license>
 
@@ -28,6 +25,7 @@
   <build_depend>sensor_msgs</build_depend>
   <build_depend>dynamic_reconfigure</build_depend>
   <build_depend>message_generation</build_depend>
+  <build_depend>sophus</build_depend>
 
   <run_depend>roscpp</run_depend>
   <run_depend>rospy</run_depend>
@@ -38,7 +36,8 @@
   <run_depend>sensor_msgs</run_depend>
   <run_depend>dynamic_reconfigure</run_depend>
   <run_depend>message_runtime</run_depend>
-  
+  <run_depend>sophus</run_depend>
+
   <export>
   </export>
 </package>
