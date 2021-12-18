@@ -22,6 +22,8 @@ find_package(OpenCV 3 REQUIRED)
 find_package(Eigen3 3.1.0 REQUIRED)
 find_package(Sophus REQUIRED)
 find_package(DBoW2 REQUIRED)
+find_package(Pangolin REQUIRED)
+
 if(DBoW2_FOUND)
    MESSAGE("DBOW2 at: " ${dbow2_catkin_INCLUDE_DIRS})
    MESSAGE("DBOW2 Libs at: " ${dbow2_catkin_LIBRARIES})
@@ -40,10 +42,9 @@ set(LIBS_ROS
         ${OpenCV_LIBS}
         ${catkin_LIBRARIES}
         ${Sophus_LIBRARIES}
-        -lGL -lglut -lGLU -lGLEW
         -lboost_system
         -lcrypto
-        -lpangolin
+        ${Pangolin_LIBRARIES}
         )
 
 catkin_package(
@@ -68,6 +69,7 @@ include_directories(
         ${PROJECT_SOURCE_DIR}/ORB_SLAM3_ROS/include/Utils
         ${g2o_INCLUDE_DIR}
         ${DBoW2_INCLUDE_DIR}
+        ${Pangolin_INCLUDE_DIRS}
 )
 
 add_executable(${PROJECT_NAME}_stereo_inertial
