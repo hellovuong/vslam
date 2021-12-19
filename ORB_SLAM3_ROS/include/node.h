@@ -98,7 +98,7 @@ class node {
 
   std::string strVocFile;
   std::string strSettingsFile;
-
+  bool mbViewer;
   // Publish variables
   // Map
   image_transport::ImageTransport image_transport_;

@@ -16,12 +16,12 @@ node::node(ORB_SLAM3::System::eSensor sensor,
   mNodeName = ros::this_node::getName();
 }
 
-node::~node() {
-}
+node::~node() {}
 void node::Init() {
   // Retrieve static parameters
   nh_.getParam("Vocab_path", strVocFile);
   nh_.getParam("Params", strSettingsFile);
+  nh_.getParam("Visualize", mbViewer);
   // Retrieve frame id parameters
   nh_.getParam("world_frame_id", world_frame_id_);  // world_frame
   nh_.getParam("left_camera_frame_id",
@@ -30,7 +30,7 @@ void node::Init() {
 
   // Init ORB_SLAM3
   mpORB_SLAM3 =
-      new ORB_SLAM3::System(strVocFile, strSettingsFile, mSensor, true);
+      new ORB_SLAM3::System(strVocFile, strSettingsFile, mSensor, mbViewer);
 
   // Bring the constructors here to get the state robot easier
   // TODO: Optimize this
@@ -39,8 +39,8 @@ void node::Init() {
   mpMapDrawer = mpORB_SLAM3->mpMapDrawer;
   mpAtlas = mpORB_SLAM3->mpAtlas;
   // Initialization transformation listener
-//  tfBuffer.reset(new tf2_ros::Buffer);
-//  tfListener.reset(new tf2_ros::TransformListener(*tfBuffer));
+  //  tfBuffer.reset(new tf2_ros::Buffer);
+  //  tfListener.reset(new tf2_ros::TransformListener(*tfBuffer));
 
   // Advertise topics
   // Debug image
@@ -75,7 +75,7 @@ void node::Update() {
   mpMapDrawer->GetCurrentCameraTimestamp(timestamp);
 
   if (!cvTcw.empty()) {
-//    cout << " here3" << endl;
+    //    cout << " here3" << endl;
     cv::cv2eigen(cvTcw, eTcw);
     eTcw.block<3, 3>(0, 0) = Eigen::Quaterniond(eTcw.block<3, 3>(0, 0))
                                  .normalized()
