@@ -32,6 +32,7 @@ RUN apt-get update && apt-get install -y \
     libatlas-base-dev gfortran \
     libparmetis-dev \
     libgl1-mesa-dev libglew-dev \
+    x11-xserver-utils \
     python-wstool python-catkin-tools && \
     rm -rf /var/lib/apt/lists/*
 
@@ -76,6 +77,8 @@ RUN cd $CATKIN_WS && \
     catkin build -j2 catkin_simple && \ 
     catkin build -j2 dbow2_catkin && \ 
     catkin build -j2 g2o_catkin 
+
+RUN xhost +local:docker
 
 RUN cd $CATKIN_WS/src/vslam/ORB_SLAM3  && \
     mkdir build && cd build && \
