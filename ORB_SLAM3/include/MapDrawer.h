@@ -52,8 +52,8 @@ class MapDrawer {
                                     pangolin::OpenGlMatrix& MOw,
                                     pangolin::OpenGlMatrix& MTwwp);
   void GetCurrentCameraPose(cv::Mat& Twc);
-  void GetCurrentCameraTimestamp(double timestamp);
-
+  void GetCurrentCameraTimestamp(double *timestamp);
+  double GetCurrentCamTimestamp();
  private:
   bool ParseViewerParamFile(cv::FileStorage& fSettings);
 

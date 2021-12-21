@@ -32,62 +32,55 @@ void node::Init() {
   mpORB_SLAM3 =
       new ORB_SLAM3::System(strVocFile, strSettingsFile, mSensor, mbViewer);
 
+  // Retrieve Camera Info
+  cv::FileStorage fSettings(strSettingsFile, cv::FileStorage::READ);
+  GetCamInfo(fSettings);
+
   // Bring the constructors here to get the state robot easier
   // TODO: Optimize this
   //  mpORB_SLAM3->SetThreads(mpLocalMapping, mpMapDrawer, mpAtlas);
   mpLocalMapping = mpORB_SLAM3->mpLocalMapper;
   mpMapDrawer = mpORB_SLAM3->mpMapDrawer;
   mpAtlas = mpORB_SLAM3->mpAtlas;
-  // Initialization transformation listener
-  //  tfBuffer.reset(new tf2_ros::Buffer);
-  //  tfListener.reset(new tf2_ros::TransformListener(*tfBuffer));
 
   // Advertise topics
-  // Debug image
-  //  mDebugImagePub = image_transport_.advertise(mNodeName + "/DebugImage", 1);
   // Map Point
-  // TODO: Only start to publish when ORB_SLAM3 finished InitializeIMU or
-  // InertialBA2
   mMapPointsPub =
       nh_.advertise<sensor_msgs::PointCloud2>(mNodeName + "/MapPoints", 1);
   // Pose
-  // TODO: Only start to publish when ORB_SLAM3 finished InitializeIMU or
-  // InertialBA2
   mPosePub = nh_.advertise<nav_msgs::Odometry>(mNodeName + "/Pose", 1);
 
-  // For Depth Estimation
+  // Keyframe data(s) For Depth Estimation
   mKFDebugImagePub =
       image_transport_.advertise(mNodeName + "/KF_DebugImage", 1);
   mKFPosePub = nh_.advertise<nav_msgs::Odometry>(mNodeName + "/KF_Pose", 1);
   mMPsObsbyKFPub =
       nh_.advertise<sensor_msgs::PointCloud>(mNodeName + "/KF_MapPoints", 1);
-  mKFsFeatures =
+  mKFsFeaturesPub =
       nh_.advertise<sensor_msgs::PointCloud>(mNodeName + "/KF_Features", 1);
-  //  cout << " here1" << endl;
+  mKFsCamInfoPub =
+      nh_.advertise<sensor_msgs::CameraInfo>(mNodeName + "/KF_CamInfo", 1);
 }
 void node::Update() {
-  //  cout << " here2" << endl;
   if (!mpAtlas->GetCurrentMap()->isImuInitialized()) return;
-  cv::Mat cvTcw;
-  double timestamp;
-  mpMapDrawer->GetCurrentCameraPose(cvTcw);
-  //  cout << " here3" << endl;
-  mpMapDrawer->GetCurrentCameraTimestamp(timestamp);
 
+  cv::Mat cvTcw;
+
+  mpMapDrawer->GetCurrentCameraPose(cvTcw);
+  mTimestamp = mpMapDrawer->GetCurrentCamTimestamp();
   if (!cvTcw.empty()) {
-    //    cout << " here3" << endl;
     cv::cv2eigen(cvTcw, eTcw);
     eTcw.block<3, 3>(0, 0) = Eigen::Quaterniond(eTcw.block<3, 3>(0, 0))
                                  .normalized()
                                  .toRotationMatrix();
     Sophus::SE3d spTcw = Sophus::SE3d(eTcw);
     spTwc = spTcw.inverse();
-    // Publish current pose (Transformation from camera to world)
-    //    PublishPoseAsTransform(spTwc, timestamp);
-    PublishPoseAsOdometry(spTwc, timestamp);
+    // Publish current pose (Transformation from camera to target)
+    PublishPoseAsTransform(spTwc, mTimestamp);
+    PublishPoseAsOdometry(spTwc, mTimestamp);
     std::vector<ORB_SLAM3::MapPoint*> vpMapPoints =
         mpAtlas->GetCurrentMap()->GetAllMapPoints();
-    PublishMapPointsAsPCL2(vpMapPoints, 0);
+    PublishMapPointsAsPCL2(vpMapPoints, mTimestamp);
   }
   if (!mpLocalMapping->mlProcessdKFs.empty()) {
     // TODO: Adding mutex
@@ -97,17 +90,13 @@ void node::Update() {
   }
 }
 void node::PublishPoseAsTransform(const Sophus::SE3d& Twc, double timestamp) {
-  tf2::Transform tfCamPose;
-  // Convert to tf format
-  tfCamPose = Utils::toTransformMsg(Twc);
-  //  ros::Time rosTimeStamp;
   // Generate Msg
-  tf2::Stamped<tf2::Transform> tfStamped = tf2::Stamped<tf2::Transform>(
-      tfCamPose, Utils::toROSTime(timestamp), world_frame_id_);
   geometry_msgs::TransformStamped tfMsg;
-  tf2::toMsg(tfMsg);
+  tfMsg.header.stamp = Utils::toROSTime(timestamp);
+  tfMsg.header.frame_id = world_frame_id_;
+  tfMsg.child_frame_id = left_cam_frame_id_;
+  Utils::toTransformMsg(Twc, &tfMsg.transform);
   // Broadcast tf
-  static tf2_ros::TransformBroadcaster tf_broadcaster;
   tf_broadcaster.sendTransform(tfMsg);
 }
 void node::PublishMapPointsAsPCL2(std::vector<ORB_SLAM3::MapPoint*> vpMapPoints,
@@ -121,7 +110,7 @@ void node::PublishMapPointsAsPCL2(std::vector<ORB_SLAM3::MapPoint*> vpMapPoints,
   const int num_channels = 3;  // x y z
 
   cloud.header.stamp = Utils::toROSTime(timestamp);
-  cloud.header.frame_id = point_cloud_frame_id_;
+  cloud.header.frame_id = world_frame_id_;
   cloud.height = 1;
   cloud.width = vpMapPoints.size();
   cloud.is_bigendian = false;
@@ -158,8 +147,7 @@ void node::PublishMapPointsAsPCL2(std::vector<ORB_SLAM3::MapPoint*> vpMapPoints,
 }
 void node::PublishKF(ORB_SLAM3::KeyFrame* pKF) {
   Eigen::Matrix4d eTwc;
-  cv::cv2eigen(pKF->GetPoseInverse(), eTwc);
-  // Get Pose (Twc)
+  cv::cv2eigen(pKF->GetPose(), eTwc);  // POSE Tcw
   eTwc.block<3, 3>(0, 0) = Eigen::Quaterniond(eTwc.block<3, 3>(0, 0))
                                .normalized()
                                .toRotationMatrix();
@@ -222,22 +210,29 @@ void node::PublishKF(ORB_SLAM3::KeyFrame* pKF) {
       cloud_feature.points[i].z = 0;
     }
   }
-  //  cv::imwrite("KF.png",imKF);
+  // Camera info
+  sensor_msgs::CameraInfo leftInfo;
+  leftInfo.header.frame_id = "left_camera";
+  leftInfo.header.stamp = Utils::toROSTime(timestamp);
+  ParseCamInfo(leftInfo);
   // Image
   sensor_msgs::ImagePtr img_msg;
   sensor_msgs::Image std_img_msg;
   std_img_msg.header.stamp.fromSec(timestamp);
   std_img_msg.header.frame_id = "Left_frame";
   img_msg = cv_bridge::CvImage(std_img_msg.header, "mono8", imKF).toImageMsg();
+
   // Publish
   mMPsObsbyKFPub.publish(cloud);
-  mKFsFeatures.publish(cloud_feature);
+  mKFsFeaturesPub.publish(cloud_feature);
   mKFDebugImagePub.publish(img_msg);
+  mKFsCamInfoPub.publish(leftInfo);
 }
 void node::PublishPoseAsOdometry(const Sophus::SE3d& Twc, double timestamp) {
   nav_msgs::Odometry PoseMsg;
   PoseMsg.header.stamp = Utils::toROSTime(timestamp);
-  PoseMsg.header.frame_id = "left_cam_pose";
+  PoseMsg.header.frame_id = world_frame_id_;
+  PoseMsg.child_frame_id = left_cam_frame_id_;
 
   PoseMsg.pose.pose.orientation.x = Twc.unit_quaternion().x();
   PoseMsg.pose.pose.orientation.y = Twc.unit_quaternion().y();
@@ -249,4 +244,139 @@ void node::PublishPoseAsOdometry(const Sophus::SE3d& Twc, double timestamp) {
   PoseMsg.pose.pose.position.z = Twc.translation().z();
 
   mPosePub.publish(PoseMsg);
+}
+void node::ParseCamInfo(sensor_msgs::CameraInfo& msg) {
+
+  // Camera size
+  msg.width = camWidth;
+  msg.height = camHeight;
+  // Distortion model
+  msg.distortion_model = "plumb_bob";
+  // Intrinsic matrix
+  msg.K[0] = fx;
+  msg.K[1] = 0.0;
+  msg.K[2] = cx;
+  msg.K[3] = 0.0;
+  msg.K[4] = fy;
+  msg.K[5] = cy;
+  msg.K[6] = 0.0;
+  msg.K[7] = 0.0;
+  msg.K[8] = 1.0;
+  // Distortion matrix
+  msg.D.resize(4);
+  msg.D[0] = k1;
+  msg.D[1] = k2;
+  msg.D[2] = t1;
+  msg.D[3] = t2;
+  // Rectification matrix
+  msg.R[0] = 1.0;
+  msg.R[1] = 0.0;
+  msg.R[2] = 0.0;
+  msg.R[3] = 0.0;
+  msg.R[4] = 1.0;
+  msg.R[5] = 0.0;
+  msg.R[6] = 0.0;
+  msg.R[7] = 0.0;
+  msg.R[8] = 1.0;
+  // Projection matrix
+  msg.P[0] = fx;
+  msg.P[1] = 0.0;
+  msg.P[2] = cx;
+  msg.P[3] = 0.0;
+  msg.P[4] = 0.0;
+  msg.P[5] = fy;
+  msg.P[6] = cy;
+  msg.P[7] = 0.0;
+  msg.P[8] = 0.0;
+  msg.P[9] = 0.0;
+  msg.P[10] = 1.0;
+  msg.P[11] = 0.0;
+  // Binning
+  msg.binning_x = 0;
+  msg.binning_y = 0;
+  // ROI
+  msg.roi.x_offset = 0;
+  msg.roi.y_offset = 0;
+  msg.roi.height = 0;
+  msg.roi.width = 0;
+  msg.roi.do_rectify = false;
+}
+void node::GetCamInfo(cv::FileStorage& fSettings) {
+  bool b_miss_params = false;
+  // Camera calibration parameters
+  cv::FileNode node = fSettings["Camera.fx"];
+  if (!node.empty() && node.isReal()) {
+    fx = node.real();
+  } else {
+    std::cerr << "*Camera.fx parameter doesn't exist or is not a real number*"
+              << std::endl;
+    b_miss_params = true;
+  }
+
+  node = fSettings["Camera.fy"];
+  if (!node.empty() && node.isReal()) {
+    fy = node.real();
+  } else {
+    std::cerr << "*Camera.fy parameter doesn't exist or is not a real number*"
+              << std::endl;
+    b_miss_params = true;
+  }
+
+  node = fSettings["Camera.cx"];
+  if (!node.empty() && node.isReal()) {
+    cx = node.real();
+  } else {
+    std::cerr << "*Camera.cx parameter doesn't exist or is not a real number*"
+              << std::endl;
+    b_miss_params = true;
+  }
+
+  node = fSettings["Camera.cy"];
+  if (!node.empty() && node.isReal()) {
+    cy = node.real();
+  } else {
+    std::cerr << "*Camera.cy parameter doesn't exist or is not a real number*"
+              << std::endl;
+    b_miss_params = true;
+  }
+
+  // Distortion parameters
+  node = fSettings["Camera.k1"];
+  if (!node.empty() && node.isReal()) {
+    k1 = node.real();
+  } else {
+    std::cerr << "*Camera.k1 parameter doesn't exist or is not a real number*"
+              << std::endl;
+    b_miss_params = true;
+  }
+
+  node = fSettings["Camera.k2"];
+  if (!node.empty() && node.isReal()) {
+    k2 = node.real();
+  } else {
+    std::cerr << "*Camera.k2 parameter doesn't exist or is not a real number*"
+              << std::endl;
+    b_miss_params = true;
+  }
+
+  node = fSettings["Camera.p1"];
+  if (!node.empty() && node.isReal()) {
+    t1 = node.real();
+  } else {
+    std::cerr << "*Camera.p1 parameter doesn't exist or is not a real number*"
+              << std::endl;
+    b_miss_params = true;
+  }
+
+  node = fSettings["Camera.p2"];
+  if (!node.empty() && node.isReal()) {
+    t2 = node.real();
+  } else {
+    std::cerr << "*Camera.p2 parameter doesn't exist or is not a real number*"
+              << std::endl;
+    b_miss_params = true;
+  }
+  camWidth = (int)fSettings["Camera.width"].real();
+  camHeight = (int)fSettings["Camera.height"].real();
+  ROS_WARN_COND(b_miss_params, "MISSING CAMERA PARAMS");
 }

@@ -6,13 +6,13 @@
 #define VSLAM_NODE_H
 
 // From ORB_SLAM3
-#include <System.h>
 #include <LocalMapping.h>
+#include <System.h>
 // From ROS
 //  Core
+#include <cv_bridge/cv_bridge.h>
 #include <ros/ros.h>
 #include <ros/time.h>
-#include <cv_bridge/cv_bridge.h>
 //  tf2
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
@@ -20,6 +20,7 @@
 #include <geometry_msgs/PoseStamped.h>
 #include <image_transport/image_transport.h>
 #include <nav_msgs/Odometry.h>
+#include <sensor_msgs/CameraInfo.h>
 #include <sensor_msgs/PointCloud.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.h>
@@ -32,12 +33,6 @@
 
 #include "utils/Utils.h"
 
-class Viewer;
-class FrameDrawer;
-class Atlas;
-class Tracking;
-class LocalMapping;
-
 class node {
  public:
   node(ORB_SLAM3::System::eSensor sensor,
@@ -48,8 +43,6 @@ class node {
 
   // Advertise publish topics
   void Init();
-
-//  cv::Mat cvTcw;
 
  protected:
   // Update state and publish data
@@ -80,10 +73,11 @@ class node {
   void PublishMapPointsAsPCL2(std::vector<ORB_SLAM3::MapPoint*> vpMapPoints,
                               double timestamp);
   void PublishKF(ORB_SLAM3::KeyFrame* pKF);
+  void ParseCamInfo(sensor_msgs::CameraInfo& msg);
+  void GetCamInfo(cv::FileStorage& fSettings);
   // initialization Transform listener
   boost::shared_ptr<tf2_ros::Buffer> tfBuffer;
   boost::shared_ptr<tf2_ros::TransformListener> tfListener;
-
 
   ros::NodeHandle nh_;
 
@@ -94,7 +88,7 @@ class node {
   std::string world_frame_id_;
   std::string left_cam_frame_id_;
   std::string point_cloud_frame_id_;
-
+  std::string target_frame_id_;
 
   std::string strVocFile;
   std::string strSettingsFile;
@@ -102,6 +96,7 @@ class node {
   // Publish variables
   // Map
   image_transport::ImageTransport image_transport_;
+  tf2_ros::TransformBroadcaster tf_broadcaster;
   image_transport::Publisher mDebugImagePub;
   ros::Publisher mPosePub;
   ros::Publisher mMapPointsPub;
@@ -110,9 +105,15 @@ class node {
   ros::Publisher mKFPosePub;
   image_transport::Publisher mKFDebugImagePub;
   ros::Publisher mMPsObsbyKFPub;
-  ros::Publisher mKFsFeatures;
+  ros::Publisher mKFsFeaturesPub;
+  ros::Publisher mKFsCamInfoPub;
+  //  Saving a copy of camera parameters in case that we need it for depth est.
+  int camWidth, camHeight;
+  double fx, fy, cx, cy;
+  double k1, k2, t1, t2;
 
   // Robot state
+  double mTimestamp;
   Eigen::Matrix4d eTcw;
   Sophus::SE3d spTwc;
 };

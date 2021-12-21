@@ -520,8 +520,13 @@ void MapDrawer::SetCurrentCameraTimestamp(double timestamp) {
   unique_lock<mutex> lock(mMutexCamera);
   mTimestamps = timestamp;
 }
-void MapDrawer::GetCurrentCameraTimestamp(double timestamp) {
+void MapDrawer::GetCurrentCameraTimestamp(double *timestamp) {
   unique_lock<mutex> lock(mMutexCamera);
-  timestamp = mTimestamps;
+  timestamp = &mTimestamps;
+}
+double MapDrawer::GetCurrentCamTimestamp() {
+  unique_lock<mutex> lock(mMutexCamera);
+  double timestamp = mTimestamps;
+  return timestamp;
 }
 }  // namespace ORB_SLAM3

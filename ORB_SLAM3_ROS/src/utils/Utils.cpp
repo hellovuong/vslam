@@ -3,15 +3,15 @@
 //
 
 #include "utils/Utils.h"
-tf2::Transform Utils::toTransformMsg(Sophus::SE3d Twc) {
+void Utils::toTransformMsg(Sophus::SE3d Twc, geometry_msgs::Transform* tf) {
   // TODO (Vuong): Do we need to change ORB coord to ROS Coordinate
-  tf2::Quaternion tf2R_quat(Twc.so3().unit_quaternion().x(),
-                            Twc.so3().unit_quaternion().y(),
-                            Twc.so3().unit_quaternion().z(),
-                            Twc.so3().unit_quaternion().w());
-  tf2::Vector3 tf2p(
-      Twc.translation().x(), Twc.translation().y(), Twc.translation().z());
-  return tf2::Transform(tf2R_quat, tf2p);
+  tf->translation.x = Twc.translation().x();
+  tf->translation.y = Twc.translation().y();
+  tf->translation.z = Twc.translation().z();
+  tf->rotation.w = Twc.unit_quaternion().w();
+  tf->rotation.x = Twc.unit_quaternion().x();
+  tf->rotation.y = Twc.unit_quaternion().y();
+  tf->rotation.z = Twc.unit_quaternion().z();
 }
 ros::Time Utils::toROSTime(double timestamp) {
   ros::Time output;

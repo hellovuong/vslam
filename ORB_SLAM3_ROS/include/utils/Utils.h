@@ -17,7 +17,7 @@
 
 namespace Utils {
 
-tf2::Transform toTransformMsg(Sophus::SE3d Twc);
+void toTransformMsg(Sophus::SE3d Twc, geometry_msgs::Transform* tf);
 ros::Time toROSTime(double timestamp);
 //void TftoTarget()
 };

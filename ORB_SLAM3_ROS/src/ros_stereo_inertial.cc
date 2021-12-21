@@ -109,11 +109,13 @@ int main(int argc, char** argv) {
   nh.getParam("Output_name", strOutput);
 
   auto* imugb = new ImuGrabber();
+
   VIO mVIO(
       ORB_SLAM3::System::eSensor::IMU_STEREO, nh, image_transport, strOutput);
 
   mVIO.mpImuGb = imugb;
 
+  // Prepare for Rectify
   if (bRect) {
     // Load settings related to stereo calibration
     cv::FileStorage fsSettings(strSettingsFile, cv::FileStorage::READ);
@@ -167,6 +169,7 @@ int main(int argc, char** argv) {
                                 mVIO.M2r);
   }
 
+  // Prepare for resize
   if (bResize) {
     ROS_WARN(
         "Resize input image is enable, Make sure that using correct camera "
