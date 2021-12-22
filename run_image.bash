@@ -1,4 +1,3 @@
-apt-get install x11-xserver-utils
 XAUTH=/tmp/.docker.xauth
 if [ ! -f $XAUTH ]
 then
