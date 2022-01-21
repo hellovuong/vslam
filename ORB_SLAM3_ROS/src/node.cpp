@@ -4,7 +4,6 @@
 
 #include "node.h"
 
-#include <utility>
 node::node(ORB_SLAM3::System::eSensor sensor,
            ros::NodeHandle& node_handle,
            image_transport::ImageTransport& image_transport,
@@ -145,6 +144,64 @@ void node::PublishMapPointsAsPCL2(std::vector<ORB_SLAM3::MapPoint*> vpMapPoints,
   }
   mMapPointsPub.publish(cloud);
 }
+
+void node::PublishKFPose(Sophus::SE3d Twc, double timestamp) {
+  nav_msgs::Odometry PoseMsg;
+
+  PoseMsg.header.stamp = Utils::toROSTime(timestamp);
+  PoseMsg.header.frame_id = left_cam_frame_id_;
+
+  PoseMsg.pose.pose.orientation.x = Twc.unit_quaternion().x();
+  PoseMsg.pose.pose.orientation.y = Twc.unit_quaternion().y();
+  PoseMsg.pose.pose.orientation.z = Twc.unit_quaternion().z();
+  PoseMsg.pose.pose.orientation.w = Twc.unit_quaternion().w();
+
+  PoseMsg.pose.pose.position.x = Twc.translation().x();
+  PoseMsg.pose.pose.position.y = Twc.translation().y();
+  PoseMsg.pose.pose.position.z = Twc.translation().z();
+
+  mKFPosePub.publish(PoseMsg);
+}
+
+void node::PublishKFCloud(std::vector<ORB_SLAM3::MapPoint*> vpMapPoints, double timestamp) {
+  sensor_msgs::PointCloud cloud; // 2
+  cloud.header.stamp = Utils::toROSTime(timestamp);
+  cloud.header.frame_id = left_cam_frame_id_;
+  cloud.points.resize(vpMapPoints.size());
+  // we'll also add an intensity channel to the cloud
+  cloud.channels.resize(1);
+  cloud.channels[0].name = "intensities";
+  cloud.channels[0].values.resize(vpMapPoints.size());
+
+  for (size_t i = 0; i < vpMapPoints.size(); i++) {
+    ORB_SLAM3::MapPoint* pMP = vpMapPoints[i];
+    if (pMP && !pMP->isBad()) {
+      cloud.points[i].x = pMP->GetWorldPos().at<float>(0);
+      cloud.points[i].y = pMP->GetWorldPos().at<float>(1);
+      cloud.points[i].z = pMP->GetWorldPos().at<float>(2);
+    }
+  }
+
+  mMPsObsbyKFPub.publish(cloud);
+}
+
+void node::PublishKFLeftImage(cv::Mat imKF, double timestamp) {
+  // Camera info
+  sensor_msgs::CameraInfo leftInfo; // 3
+  leftInfo.header.frame_id = "left_camera";
+  leftInfo.header.stamp = Utils::toROSTime(timestamp);
+  ParseCamInfo(leftInfo);
+  // Image
+  sensor_msgs::ImagePtr img_msg; // 3
+  sensor_msgs::Image std_img_msg;
+  std_img_msg.header.stamp.fromSec(timestamp);
+  std_img_msg.header.frame_id = "Left_frame";
+  img_msg = cv_bridge::CvImage(std_img_msg.header, "mono8", imKF).toImageMsg();
+
+  mKFDebugImagePub.publish(img_msg);
+  mKFsCamInfoPub.publish(leftInfo);
+}
+
 void node::PublishKF(ORB_SLAM3::KeyFrame* pKF) {
   Eigen::Matrix4d eTwc;
   cv::cv2eigen(pKF->GetPose(), eTwc);  // POSE Tcw
@@ -163,72 +220,89 @@ void node::PublishKF(ORB_SLAM3::KeyFrame* pKF) {
   cv::Mat imKF = pKF->imgLeft.clone();
   // Start Publish
   // Pose (Twc)
-  nav_msgs::Odometry PoseMsg;
-  PoseMsg.header.stamp = Utils::toROSTime(timestamp);
-  PoseMsg.header.frame_id = std::to_string(pKF->mnId);
+  // nav_msgs::Odometry PoseMsg; // 1
+  // PoseMsg.header.stamp = Utils::toROSTime(timestamp);
+  // PoseMsg.header.frame_id = std::to_string(pKF->mnId);
 
-  PoseMsg.pose.pose.orientation.x = Twc.unit_quaternion().x();
-  PoseMsg.pose.pose.orientation.y = Twc.unit_quaternion().y();
-  PoseMsg.pose.pose.orientation.z = Twc.unit_quaternion().z();
-  PoseMsg.pose.pose.orientation.w = Twc.unit_quaternion().w();
+  // PoseMsg.pose.pose.orientation.x = Twc.unit_quaternion().x();
+  // PoseMsg.pose.pose.orientation.y = Twc.unit_quaternion().y();
+  // PoseMsg.pose.pose.orientation.z = Twc.unit_quaternion().z();
+  // PoseMsg.pose.pose.orientation.w = Twc.unit_quaternion().w();
 
-  PoseMsg.pose.pose.position.x = Twc.translation().x();
-  PoseMsg.pose.pose.position.y = Twc.translation().y();
-  PoseMsg.pose.pose.position.z = Twc.translation().z();
+  // PoseMsg.pose.pose.position.x = Twc.translation().x();
+  // PoseMsg.pose.pose.position.y = Twc.translation().y();
+  // PoseMsg.pose.pose.position.z = Twc.translation().z();
 
-  mKFPosePub.publish(PoseMsg);
+  // mKFPosePub.publish(PoseMsg);
 
-  // Map Points
-  sensor_msgs::PointCloud cloud;
-  cloud.header.stamp = Utils::toROSTime(timestamp);
-  cloud.header.frame_id = std::to_string(pKF->mnId);
-  cloud.points.resize(vpMapPoints.size());
-  // we'll also add an intensity channel to the cloud
-  cloud.channels.resize(1);
-  cloud.channels[0].name = "intensities";
-  cloud.channels[0].values.resize(vpMapPoints.size());
+  // // Map Points
+  // sensor_msgs::PointCloud cloud; // 2
+  // cloud.header.stamp = Utils::toROSTime(timestamp);
+  // cloud.header.frame_id = std::to_string(pKF->mnId);
+  // cloud.points.resize(vpMapPoints.size());
+  // // we'll also add an intensity channel to the cloud
+  // cloud.channels.resize(1);
+  // cloud.channels[0].name = "intensities";
+  // cloud.channels[0].values.resize(vpMapPoints.size());
 
-  // Corresponding Features
-  sensor_msgs::PointCloud cloud_feature;
-  cloud_feature.header.stamp = Utils::toROSTime(timestamp);
-  cloud_feature.header.frame_id = std::to_string(pKF->mnId);
-  cloud_feature.points.resize(vpMapPoints.size());
-  // we'll also add an intensity channel to the cloud
-  cloud_feature.channels.resize(1);
-  cloud_feature.channels[0].name = "intensities";
-  cloud_feature.channels[0].values.resize(vpMapPoints.size());
+  // // Corresponding Features
+  // sensor_msgs::PointCloud cloud_feature; // comment
+  // cloud_feature.header.stamp = Utils::toROSTime(timestamp);
+  // cloud_feature.header.frame_id = std::to_string(pKF->mnId);
+  // cloud_feature.points.resize(vpMapPoints.size());
+  // // we'll also add an intensity channel to the cloud
+  // cloud_feature.channels.resize(1);
+  // cloud_feature.channels[0].name = "intensities";
+  // cloud_feature.channels[0].values.resize(vpMapPoints.size());
 
-  for (size_t i = 0; i < vpMapPoints.size(); i++) {
-    ORB_SLAM3::MapPoint* pMP = vpMapPoints[i];
-    if (pMP && !pMP->isBad()) {
-      cloud.points[i].x = pMP->GetWorldPos().at<float>(0);
-      cloud.points[i].y = pMP->GetWorldPos().at<float>(1);
-      cloud.points[i].z = pMP->GetWorldPos().at<float>(2);
+  // for (size_t i = 0; i < vpMapPoints.size(); i++) {
+  //   ORB_SLAM3::MapPoint* pMP = vpMapPoints[i];
+  //   if (pMP && !pMP->isBad()) {
+  //     cloud.points[i].x = pMP->GetWorldPos().at<float>(0);
+  //     cloud.points[i].y = pMP->GetWorldPos().at<float>(1);
+  //     cloud.points[i].z = pMP->GetWorldPos().at<float>(2);
 
-      cloud_feature.points[i].x = pKF->mvKeys[i].pt.x;
-      cloud_feature.points[i].y = pKF->mvKeys[i].pt.y;
-      cloud_feature.points[i].z = 0;
-    }
-  }
-  // Camera info
-  sensor_msgs::CameraInfo leftInfo;
-  leftInfo.header.frame_id = "left_camera";
-  leftInfo.header.stamp = Utils::toROSTime(timestamp);
-  ParseCamInfo(leftInfo);
-  // Image
-  sensor_msgs::ImagePtr img_msg;
-  sensor_msgs::Image std_img_msg;
-  std_img_msg.header.stamp.fromSec(timestamp);
-  std_img_msg.header.frame_id = "Left_frame";
-  img_msg = cv_bridge::CvImage(std_img_msg.header, "mono8", imKF).toImageMsg();
+  //     cloud_feature.points[i].x = pKF->mvKeys[i].pt.x;
+  //     cloud_feature.points[i].y = pKF->mvKeys[i].pt.y;
+  //     cloud_feature.points[i].z = 0;
+  //   }
+  // }
+  // // Camera info
+  // sensor_msgs::CameraInfo leftInfo; // 3
+  // leftInfo.header.frame_id = "left_camera";
+  // leftInfo.header.stamp = Utils::toROSTime(timestamp);
+  // ParseCamInfo(leftInfo);
+  // // Image
+  // sensor_msgs::ImagePtr img_msg; // 3
+  // sensor_msgs::Image std_img_msg;
+  // std_img_msg.header.stamp.fromSec(timestamp);
+  // std_img_msg.header.frame_id = "Left_frame";
+  // img_msg = cv_bridge::CvImage(std_img_msg.header, "mono8", imKF).toImageMsg();
 
-  // Publish
-  mMPsObsbyKFPub.publish(cloud);
-  mKFsFeaturesPub.publish(cloud_feature);
-  mKFDebugImagePub.publish(img_msg);
-  mKFsCamInfoPub.publish(leftInfo);
+  // // Publish
+  // mMPsObsbyKFPub.publish(cloud);
+  // mKFsFeaturesPub.publish(cloud_feature);
+  // mKFDebugImagePub.publish(img_msg);
+  // mKFsCamInfoPub.publish(leftInfo);
+  std::thread threadKFPublishPose, threadKFPublishCloud, threadKFPublishLeftImage;
+  threadKFPublishPose = std::thread(&node::PublishKFPose, this, Twc, timestamp);
+  threadKFPublishCloud = std::thread(&node::PublishKFCloud, this, vpMapPoints, timestamp);
+  threadKFPublishLeftImage = std::thread(&node::PublishKFLeftImage, this, imKF, timestamp);
+  //std::thread threadKFPublishPose, threadKFPublishCloud, threadKFPublishLeftImage;
+  // threadKFPublishPose = std::thread([this, &Twc, timestamp](){
+  //  &node::PublishKFPose(Twc, timestamp);
+  // });
+  // threadKFPublishCloud = std::thread([this, &vpMapPoints, timestamp](){
+  //  &node::PublishKFCloud(vpMapPoints, timestamp);
+  // });
+  // threadKFPublishLeftImage = std::thread([this, &imKF, timestamp](){
+  //  &node::PublishKFLeftImage(imKF, timestamp);
+  // });
+  threadKFPublishPose.join();
+  threadKFPublishCloud.join();
+  threadKFPublishLeftImage.join();
 }
-void node::PublishPoseAsOdometry(const Sophus::SE3d& Twc, double timestamp) {
+void node::PublishPoseAsOdometry(const Sophus::SE3d& Twc, double timestamp) { // not used
   nav_msgs::Odometry PoseMsg;
   PoseMsg.header.stamp = Utils::toROSTime(timestamp);
   PoseMsg.header.frame_id = world_frame_id_;
