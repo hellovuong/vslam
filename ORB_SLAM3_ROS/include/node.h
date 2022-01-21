@@ -31,6 +31,10 @@
 // From OpenCV
 #include <opencv2/core/eigen.hpp>
 
+// From std
+#include <utility>
+#include <thread>
+
 #include "utils/Utils.h"
 
 class node {
@@ -75,6 +79,9 @@ class node {
   void PublishKF(ORB_SLAM3::KeyFrame* pKF);
   void ParseCamInfo(sensor_msgs::CameraInfo& msg);
   void GetCamInfo(cv::FileStorage& fSettings);
+  void PublishKFPose(Sophus::SE3d Twc, double timestamp);
+  void PublishKFCloud(std::vector<ORB_SLAM3::MapPoint*> vpMapPoints, double timestamp);
+  void PublishKFLeftImage(cv::Mat imKF, double timestamp);
   // initialization Transform listener
   boost::shared_ptr<tf2_ros::Buffer> tfBuffer;
   boost::shared_ptr<tf2_ros::TransformListener> tfListener;
